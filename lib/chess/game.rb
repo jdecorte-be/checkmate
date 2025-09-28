@@ -59,7 +59,7 @@ module Chess
         fen: fen,
         last_move: { from: from, to: to },
         capture: capture_square,
-        secondary: legal.castle ? { from: legal.castle[:rook_from], to: legal.castle[:rook_to] } : nil,
+        secondary: legal.castle ? { from: legal.castle.rook_from, to: legal.castle.rook_to } : nil,
         promotion: legal.promotion && "#{mover_color}#{legal.promotion.upcase}",
         **status
       }

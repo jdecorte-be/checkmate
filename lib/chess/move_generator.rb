@@ -152,7 +152,7 @@ module Chess
         if !board.occupied?(f) && !board.occupied?(g) &&
            board.piece_at(h)&.downcase == 'r' &&
            !board.attacked?(f, opponent) && !board.attacked?(g, opponent)
-          moves << Move.new(from: from, to: g, castle: { rook_from: h, rook_to: f })
+          moves << Move.new(from: from, to: g, castle: Castle.new(rook_from: h, rook_to: f))
         end
       end
 
@@ -161,7 +161,7 @@ module Chess
         if !board.occupied?(b) && !board.occupied?(c) && !board.occupied?(d) &&
            board.piece_at(a)&.downcase == 'r' &&
            !board.attacked?(d, opponent) && !board.attacked?(c, opponent)
-          moves << Move.new(from: from, to: c, castle: { rook_from: a, rook_to: d })
+          moves << Move.new(from: from, to: c, castle: Castle.new(rook_from: a, rook_to: d))
         end
       end
 

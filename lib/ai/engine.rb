@@ -14,15 +14,30 @@ module Ai
 
     # Extra capture-only plies searched past the nominal depth, to avoid
     # the horizon effect (e.g. grabbing a pawn that's defended by a piece
-    # just past the search cutoff). See `quiescence`.
-    QUIESCENCE_PLIES = 6
+    # just past the search cutoff). See `quiescence`. Kept modest because
+    # legal-move generation (needed to filter to legal captures) is the
+    # search's dominant cost per node - a deep quiescence horizon in a
+    # capture-heavy middlegame can outweigh the main search entirely.
+    QUIESCENCE_PLIES = 4
 
-    # How much slower we assume the next iterative-deepening iteration
-    # will be than the last, for deciding whether there's time to start
-    # it. Alpha-beta with decent move ordering grows well under the full
-    # branching factor (~35 for chess), but this stays conservative since
-    # a blown estimate means overshooting the level's time budget.
-    BRANCHING_ESTIMATE = 8
+    # Skips a quiescence capture outright when even winning the captured
+    # piece for free couldn't come close to raising alpha (plus a margin
+    # for follow-up tactics). Cuts the many hopeless captures a
+    # capture-heavy position offers without recursing into them.
+    DELTA_MARGIN = 200
+
+    # How often (in visited nodes) the search checks the wall clock
+    # against its deadline. Node cost varies a lot by position (a
+    # captures-heavy middlegame is far pricier per node than a sparse
+    # endgame), so predicting whether the next iterative-deepening depth
+    # will fit the time budget isn't reliable - instead the search
+    # aborts itself mid-iteration once time is up (see `check_time!`).
+    NODES_PER_TIME_CHECK = 1024
+
+    # Raised to unwind out of an in-progress iteration once its deadline
+    # passes; the iteration's (possibly incomplete) scores are discarded
+    # in favor of the last iteration that finished cleanly.
+    SearchTimeout = Class.new(StandardError)
 
     # `max_depth` is searched via iterative deepening (depth 1, 2, ...),
     # reusing each completed depth's best move to order the next and
@@ -161,31 +176,36 @@ module Ai
     # on, re-ordering each iteration around the previous one's best move
     # (a much better guess than capture-first alone, so alpha-beta prunes
     # harder at deeper iterations). Stops once the level's max depth is
-    # hit, or once there's not enough time budget left for another
-    # iteration - always returning the last iteration that did complete.
+    # hit, or once `@deadline` passes (checked periodically inside the
+    # search itself - see `check_time!`), always returning the last
+    # iteration that finished cleanly.
     def search(board, moves, started_at)
-      deadline = started_at + @level[:time_budget]
+      @deadline = started_at + @level[:time_budget]
       scored = moves.map { |m| [m, 0] }
       best_move = nil
       depth_reached = 0
-      iteration_started_at = started_at
 
       (1..@level[:max_depth]).each do |depth|
-        now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        if depth > 1
-          break if now >= deadline
-          break if now + ((now - iteration_started_at) * BRANCHING_ESTIMATE) > deadline
-        end
-        iteration_started_at = now
+        break if depth > 1 && Process.clock_gettime(Process::CLOCK_MONOTONIC) >= @deadline
 
-        scored = order_root(board, moves, best_move).map do |move|
-          [move, -negamax(board.apply(move), depth - 1, -Float::INFINITY, Float::INFINITY)]
+        begin
+          scored = order_root(board, moves, best_move).map do |move|
+            [move, -negamax(board.apply(move), depth - 1, -Float::INFINITY, Float::INFINITY)]
+          end
+        rescue SearchTimeout
+          break
         end
+
         best_move, = scored.max_by { |(_move, score)| score }
         depth_reached = depth
       end
 
       [scored, depth_reached]
+    end
+
+    def check_time!
+      return unless (@nodes % NODES_PER_TIME_CHECK).zero?
+      raise SearchTimeout if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= @deadline
     end
 
     # Search the previous iteration's best move first.
@@ -216,6 +236,7 @@ module Ai
 
     def negamax(board, depth, alpha, beta)
       @nodes += 1
+      check_time!
       return quiescence(board, alpha, beta, QUIESCENCE_PLIES) if depth.zero?
 
       color = board.active_color
@@ -239,6 +260,7 @@ module Ai
     # happened to fall just past the search horizon.
     def quiescence(board, alpha, beta, plies_left)
       @nodes += 1
+      check_time!
       color = board.active_color
       in_check = board.in_check?(color)
 
@@ -264,11 +286,18 @@ module Ai
       alpha = stand_pat if stand_pat > alpha
       captures = all_moves(board, color).select { |m| capture?(board, m) }
       order(board, captures).each do |move|
+        next if stand_pat + capture_value(board, move) + DELTA_MARGIN < alpha
+
         score = -quiescence(board.apply(move), -beta, -alpha, plies_left - 1)
         return beta if score >= beta
         alpha = score if score > alpha
       end
       alpha
+    end
+
+    def capture_value(board, move)
+      victim = board.piece_at(move.to) || 'p'
+      PIECE_VALUES.fetch(victim.downcase)
     end
 
     def noise
