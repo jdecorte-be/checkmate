@@ -123,6 +123,55 @@
       }
     }
 
+    .multiplayer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .multiplayer[hidden] {
+      display: none;
+    }
+
+    .multiplayer input {
+      font: inherit;
+      width: 6em;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: #2a2a2a;
+      color: #eee;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      text-align: center;
+    }
+
+    #room-info {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.9rem;
+      color: #ccc;
+    }
+
+    #room-info[hidden] {
+      display: none;
+    }
+
+    #room-code-display {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 1.1rem;
+      letter-spacing: 0.15em;
+      color: #eee;
+      padding: 2px 8px;
+      border: 1px dashed #555;
+      border-radius: 4px;
+    }
+
     .note {
       max-width: var(--board-size);
       margin-top: 4px;
@@ -174,6 +223,19 @@
     </label>
   </div>
 
+  <div class="multiplayer" id="multiplayer-setup">
+    <button id="create-room">Play a friend</button>
+    <input id="join-code" placeholder="Code" maxlength="5" autocapitalize="characters">
+    <button id="join-room">Join with code</button>
+  </div>
+
+  <div class="multiplayer" id="room-info" hidden>
+    <span>Code: <span id="room-code-display"></span></span>
+    <button id="copy-code" type="button">Copy</button>
+    <span id="room-status-text"></span>
+    <button id="leave-room" type="button">Leave</button>
+  </div>
+
   <p class="note">
     Made by <a href="https://github.com/jdecorte-be" target="_blank" rel="noopener">jdecorte</a>,
     <a href="https://github.com/jdecorte-be/checkmate" target="_blank" rel="noopener">source code</a>.
@@ -195,6 +257,49 @@
     const debugModeEl = document.getElementById('debug-mode');
     const aiDebugEl = document.getElementById('ai-debug');
     let legalMovesBySquare = {};
+
+    // -- 1v1-with-a-friend mode -------------------------------------------
+    // `mode` is 'solo' (vs AI, the default) or 'room' (sharing a 5-character
+    // code with a friend). Room state lives on the server; the client just
+    // polls for the opponent's moves since there's no websocket.
+    let mode = 'solo';
+    let roomCode = null;
+    let roomColor = null;
+    let roomVersion = 0;
+    let roomActive = false;
+    let pollTimer = null;
+
+    const multiplayerSetupEl = document.getElementById('multiplayer-setup');
+    const roomInfoEl = document.getElementById('room-info');
+    const roomCodeDisplayEl = document.getElementById('room-code-display');
+    const roomStatusTextEl = document.getElementById('room-status-text');
+    const joinCodeInput = document.getElementById('join-code');
+
+    function setRoomStatusText(text) {
+      roomStatusTextEl.textContent = text;
+    }
+
+    function showRoomPanel(code) {
+      roomCodeDisplayEl.textContent = code;
+      multiplayerSetupEl.hidden = true;
+      roomInfoEl.hidden = false;
+    }
+
+    function hideRoomPanel() {
+      multiplayerSetupEl.hidden = false;
+      roomInfoEl.hidden = true;
+      joinCodeInput.value = '';
+    }
+
+    function stopPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(pollRoom, 1200);
+    }
 
     function showAiDebugPlaceholder() {
       aiDebugEl.textContent = 'Debug mode on — analysis will appear after the AI\'s next move.';
@@ -251,7 +356,8 @@
     }
 
     async function refreshLegalMoves() {
-      const res = await fetch('/api/legal_moves');
+      const url = roomActive ? `/api/rooms/${roomCode}/legal_moves` : '/api/legal_moves';
+      const res = await fetch(url);
       legalMovesBySquare = await res.json();
     }
 
@@ -271,19 +377,24 @@
       setStatus(data);
       if (data.aiDebug) renderAiDebug(data.aiDebug);
       await refreshLegalMoves();
-      if (data.turn === 'black' && !data.checkmate && !data.stalemate) {
+      if (roomActive) {
+        board.setViewOnly(data.turn !== roomColor || !!data.checkmate || !!data.stalemate);
+      } else if (data.turn === 'black' && !data.checkmate && !data.stalemate) {
         await playAiMove();
       }
     }
 
     async function sendMove(from, to) {
-      const res = await fetch('/api/move', {
+      const url = roomActive ? `/api/rooms/${roomCode}/move` : '/api/move';
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ from, to }),
       });
       if (!res.ok) return; // illegal - board already snapped back to `from`
-      await applyMoveResult(await res.json());
+      const data = await res.json();
+      if (roomActive) roomVersion = data.version;
+      await applyMoveResult(data);
     }
 
     async function playAiMove() {
@@ -296,6 +407,90 @@
       } finally {
         board.setViewOnly(false);
       }
+    }
+
+    async function enterActiveRoom(data) {
+      mode = 'room';
+      roomActive = true;
+      roomColor = data.color;
+      roomVersion = data.version || 0;
+      board.setOrientation(roomColor);
+      board.setPosition(fenToPosition(data.fen));
+      board.setLastMove(null, null);
+      board.setCheck(data.check);
+      setStatus(data);
+      setRoomStatusText(`Playing as ${roomColor === 'white' ? 'White' : 'Black'}`);
+      await refreshLegalMoves();
+      board.setViewOnly(data.turn !== roomColor || !!data.checkmate || !!data.stalemate);
+    }
+
+    async function pollRoom() {
+      if (!roomCode) return;
+      const res = await fetch(`/api/rooms/${roomCode}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      if (!roomActive) {
+        if (data.status === 'active') await enterActiveRoom(data);
+        return;
+      }
+
+      if (data.version > roomVersion) {
+        roomVersion = data.version;
+        if (data.move) await applyMoveResult(data.move);
+      }
+    }
+
+    async function createRoom() {
+      const res = await fetch('/api/rooms', { method: 'POST' });
+      if (!res.ok) return;
+      const data = await res.json();
+      mode = 'room';
+      roomActive = false;
+      roomCode = data.code;
+      roomColor = data.color;
+      roomVersion = data.version || 0;
+      showRoomPanel(data.code);
+      setRoomStatusText('Waiting for your friend to join…');
+      board.setOrientation('white');
+      board.setPosition(fenToPosition(data.fen));
+      board.setLastMove(null, null);
+      board.setViewOnly(true);
+      startPolling();
+    }
+
+    async function joinRoom(code) {
+      const res = await fetch('/api/rooms/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRoomStatusText(data.error || 'Could not join that game.');
+        return;
+      }
+      roomCode = data.code;
+      showRoomPanel(data.code);
+      await enterActiveRoom(data);
+      startPolling();
+    }
+
+    function resetToSolo() {
+      stopPolling();
+      mode = 'solo';
+      roomActive = false;
+      roomCode = null;
+      roomColor = null;
+      roomVersion = 0;
+      hideRoomPanel();
+      board.setViewOnly(false);
+      board.setOrientation('white');
+    }
+
+    function leaveRoom() {
+      resetToSolo();
+      loadGame();
     }
 
     async function loadGame() {
@@ -311,6 +506,7 @@
     }
 
     async function newGame() {
+      if (mode === 'room') resetToSolo();
       const res = await fetch('/api/new_game', { method: 'POST' });
       const data = await res.json();
       board.setPosition(fenToPosition(data.fen));
@@ -350,6 +546,27 @@
 
     document.getElementById('new-game').addEventListener('click', newGame);
     document.getElementById('flip').addEventListener('click', () => board.flip());
+
+    document.getElementById('create-room').addEventListener('click', createRoom);
+    document.getElementById('leave-room').addEventListener('click', leaveRoom);
+    document.getElementById('join-room').addEventListener('click', () => {
+      const code = joinCodeInput.value.trim();
+      if (code) joinRoom(code);
+    });
+    joinCodeInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('join-room').click();
+    });
+    document.getElementById('copy-code').addEventListener('click', async () => {
+      const copyBtn = document.getElementById('copy-code');
+      try {
+        await navigator.clipboard.writeText(roomCode || '');
+        const original = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = original; }, 1200);
+      } catch {
+        // Clipboard access can be denied; the code is already visible on screen.
+      }
+    });
 
     const select = document.getElementById('piece-set');
     PIECE_SETS.forEach(name => {

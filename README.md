@@ -2,7 +2,7 @@
 
 [![Test](https://github.com/jdecorte-be/checkmate/actions/workflows/test.yml/badge.svg)](https://github.com/jdecorte-be/checkmate/actions/workflows/test.yml)
 
-A chess game where you play White against a Ruby-built AI opponent, served by a small Sinatra app with a from-scratch chess engine — no external chess library.
+A chess game where you play White against a Ruby-built AI opponent, or 1v1 against a friend, served by a small Sinatra app with a from-scratch chess engine — no external chess library.
 
 ![checkmate.rb board with debug mode enabled](docs/screenshot.png)
 
@@ -13,6 +13,7 @@ A chess game where you play White against a Ruby-built AI opponent, served by a 
 - AI opponent using negamax search with alpha-beta pruning and a material + piece-square-table evaluation
 - Adjustable AI strength (illustrative Elo tiers, tuned via search depth and move randomness)
 - Click-to-move and drag-and-drop board, with a choice of piece sets
+- 1v1 with a friend: "Play a friend" creates a room and a 5-character code to send them; they join with the code and each side can only move its own pieces, on its own turn. There's no websocket, so the opponent's moves show up via polling (~1.2s)
 
 ## Requirements
 
@@ -63,6 +64,7 @@ bundle exec rake
 app.rb              Sinatra app / HTTP API
 lib/chess/          Board, move generation, and game rules
 lib/ai/             Search-based AI opponent
+lib/rooms/          In-memory 1v1 room registry (share codes, turn state)
 public/             Frontend (HTML/CSS/JS) and piece sets
 spec/                RSpec tests
 ```
