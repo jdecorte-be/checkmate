@@ -1,8 +1,5 @@
 providers = ["ruby"]
 
-[phases.setup]
-nixPkgs = ["...", "ruby_3_4"]
-
 [phases.install]
 cmds = ["bundle install"]
 
