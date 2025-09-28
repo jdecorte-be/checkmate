@@ -91,4 +91,79 @@ RSpec.describe App do
     post '/api/ai_move'
     expect(last_response.status).to eq(422)
   end
+
+  describe '1v1 rooms' do
+    def new_client
+      Rack::Test::Session.new(Rack::MockSession.new(App))
+    end
+
+    it 'lets the creator share a 5-character code that a friend can join' do
+      post '/api/rooms'
+      body = JSON.parse(last_response.body)
+      expect(body['code']).to match(/\A[A-Z0-9]{5}\z/)
+      expect(body['color']).to eq('white')
+      expect(body['status']).to eq('waiting')
+
+      friend = new_client
+      friend.post '/api/rooms/join', { code: body['code'] }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(friend.last_response).to be_ok
+      join_body = JSON.parse(friend.last_response.body)
+      expect(join_body['color']).to eq('black')
+      expect(join_body['status']).to eq('active')
+    end
+
+    it 'returns 404 when joining a code that does not exist' do
+      post '/api/rooms/join', { code: 'ZZZZZ' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(last_response.status).to eq(404)
+    end
+
+    it 'returns 409 when a room already has two players' do
+      post '/api/rooms'
+      code = JSON.parse(last_response.body)['code']
+
+      new_client.post '/api/rooms/join', { code: code }.to_json, 'CONTENT_TYPE' => 'application/json'
+      second_client = new_client
+      second_client.post '/api/rooms/join', { code: code }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(second_client.last_response.status).to eq(409)
+    end
+
+    it 'lets each player move only their own color, in turn' do
+      post '/api/rooms'
+      code = JSON.parse(last_response.body)['code']
+      white = self
+
+      black = new_client
+      black.post '/api/rooms/join', { code: code }.to_json, 'CONTENT_TYPE' => 'application/json'
+
+      black.post "/api/rooms/#{code}/move", { from: 'e2', to: 'e4' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(black.last_response.status).to eq(403)
+
+      white.post "/api/rooms/#{code}/move", { from: 'e2', to: 'e4' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(white.last_response).to be_ok
+      body = JSON.parse(white.last_response.body)
+      expect(body['turn']).to eq('black')
+      expect(body['version']).to eq(1)
+
+      white.post "/api/rooms/#{code}/move", { from: 'e7', to: 'e5' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(white.last_response.status).to eq(403)
+
+      black.post "/api/rooms/#{code}/move", { from: 'e7', to: 'e5' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(black.last_response).to be_ok
+
+      black.get "/api/rooms/#{code}"
+      poll_body = JSON.parse(black.last_response.body)
+      expect(poll_body['version']).to eq(2)
+      expect(poll_body['move']['lastMove']).to eq('from' => 'e7', 'to' => 'e5')
+    end
+
+    it 'rejects a move from someone who is not in the room' do
+      post '/api/rooms'
+      code = JSON.parse(last_response.body)['code']
+
+      bystander = new_client
+      bystander.post "/api/rooms/#{code}/move", { from: 'e2', to: 'e4' }.to_json,
+                      'CONTENT_TYPE' => 'application/json'
+      expect(bystander.last_response.status).to eq(403)
+    end
+  end
 end

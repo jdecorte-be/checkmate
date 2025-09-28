@@ -4,6 +4,7 @@ require 'json'
 require 'securerandom'
 require_relative 'lib/chess/game'
 require_relative 'lib/ai/engine'
+require_relative 'lib/rooms/store'
 
 class App < Sinatra::Base
   set :public_folder, File.join(__dir__, 'public')
@@ -12,6 +13,7 @@ class App < Sinatra::Base
   set :host_authorization, permitted_hosts: []
 
   DEFAULT_ELO = 1200
+  ROOMS = Rooms::Store.new
 
   get '/' do
     send_file File.join(settings.public_folder, 'index.html')
@@ -66,6 +68,52 @@ class App < Sinatra::Base
     json response
   end
 
+  post '/api/rooms' do
+    room = ROOMS.create
+    session[:room_code] = room.code
+    session[:room_token] = room.white_token
+    json room_state(room, 'white')
+  end
+
+  post '/api/rooms/join' do
+    payload = parsed_body
+    room, token = ROOMS.join(payload['code'].to_s)
+    halt 404, json(error: 'room not found') unless room
+    halt 409, json(error: 'room is already full') unless token
+
+    session[:room_code] = room.code
+    session[:room_token] = token
+    json room_state(room, 'black')
+  end
+
+  get '/api/rooms/:code' do
+    room = find_room!(params['code'])
+    json room_state(room, room.color_for(session[:room_token]))
+  end
+
+  get '/api/rooms/:code/legal_moves' do
+    room = find_room!(params['code'])
+    json Chess::Game.new(room.fen).legal_moves
+  end
+
+  post '/api/rooms/:code/move' do
+    room = find_room!(params['code'])
+    color = room.color_for(session[:room_token])
+    halt 403, json(error: 'not your game') unless color
+
+    game = Chess::Game.new(room.fen)
+    halt 403, json(error: "not #{color}'s turn") unless game.active_color == color
+
+    payload = parsed_body
+    result = game.move(payload['from'], payload['to'], promotion: payload['promotion'])
+    response = move_response(game, result)
+    ROOMS.apply_move(room, result[:fen], response)
+    json response.merge(color: color, version: room.version)
+  rescue ArgumentError => e
+    status 422
+    json error: e.message
+  end
+
   private
 
   def parsed_body
@@ -84,6 +132,23 @@ class App < Sinatra::Base
 
   def truthy?(value)
     %w[1 true].include?(value.to_s)
+  end
+
+  def find_room!(code)
+    ROOMS.find(code) || halt(404, json(error: 'room not found'))
+  end
+
+  def room_state(room, color)
+    game = Chess::Game.new(room.fen)
+    {
+      code: room.code,
+      color: color,
+      status: room.status,
+      fen: room.fen,
+      turn: game.active_color,
+      version: room.version,
+      move: room.last_move
+    }.merge(game.status)
   end
 
   def move_response(game, result)
