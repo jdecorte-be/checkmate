@@ -2,6 +2,8 @@
 
 A chess game where you play White against a Ruby-built AI opponent, served by a small Sinatra app with a from-scratch chess engine — no external chess library.
 
+![checkmate.rb board with debug mode enabled](docs/screenshot.png)
+
 ## Features
 
 - Fully legal move generation: check, checkmate, stalemate, castling, en passant, and promotion
