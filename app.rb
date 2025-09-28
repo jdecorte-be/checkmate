@@ -56,12 +56,14 @@ class App < Sinatra::Base
   post '/api/ai_move' do
     game = Chess::Game.new(current_fen)
     engine = Ai::Engine.new(elo: current_elo)
-    chosen = engine.choose_move(game)
+    chosen = engine.choose_move(game, debug: truthy?(params['debug']))
     halt 422, json(error: 'no legal moves') unless chosen
 
     result = game.move(chosen[:from], chosen[:to], promotion: chosen[:promotion])
     session[:fen] = result[:fen]
-    json move_response(game, result)
+    response = move_response(game, result)
+    response[:aiDebug] = chosen[:debug] if chosen[:debug]
+    json response
   end
 
   private
@@ -72,6 +74,10 @@ class App < Sinatra::Base
 
   def current_elo
     session[:ai_elo] ||= DEFAULT_ELO
+  end
+
+  def truthy?(value)
+    %w[1 true].include?(value.to_s)
   end
 
   def move_response(game, result)

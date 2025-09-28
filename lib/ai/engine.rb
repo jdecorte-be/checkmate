@@ -108,26 +108,62 @@ module Ai
     end
 
     # { from:, to:, promotion: } for the chosen move, or nil if the side to
-    # move has no legal moves (checkmate/stalemate).
-    def choose_move(game)
+    # move has no legal moves (checkmate/stalemate). Pass debug: true to
+    # also get a :debug key with search stats and per-candidate scores,
+    # for a "what was the AI thinking" view.
+    def choose_move(game, debug: false)
       board = game.board
       moves = all_moves(board, board.active_color)
       return nil if moves.empty?
 
+      @nodes = 0
+      started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
       if @rng.rand < @level[:blunder]
         move = moves.sample(random: @rng)
-        return { from: move.from, to: move.to, promotion: move.promotion }
+        result = { from: move.from, to: move.to, promotion: move.promotion }
+        result[:debug] = debug_info(blunder: true, candidates: [], started_at: started_at) if debug
+        return result
       end
 
-      best = moves.max_by do |move|
-        -negamax(board.apply(move), @level[:depth] - 1, -Float::INFINITY, Float::INFINITY) + noise
+      scored = moves.map do |move|
+        score = -negamax(board.apply(move), @level[:depth] - 1, -Float::INFINITY, Float::INFINITY) + noise
+        [move, score]
       end
-      { from: best.from, to: best.to, promotion: best.promotion }
+      best_move, = scored.max_by { |(_move, score)| score }
+
+      result = { from: best_move.from, to: best_move.to, promotion: best_move.promotion }
+      if debug
+        candidates = scored.sort_by { |(_move, score)| -score }.first(8).map do |move, score|
+          { move: notate(move), score: score }
+        end
+        result[:debug] = debug_info(blunder: false, candidates: candidates, started_at: started_at)
+      end
+      result
     end
 
     private
 
+    def debug_info(blunder:, candidates:, started_at:)
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
+      {
+        elo: @level[:elo],
+        depth: @level[:depth],
+        blunder: blunder,
+        nodes: @nodes,
+        elapsedMs: (elapsed * 1000).round(1),
+        candidates: candidates
+      }
+    end
+
+    def notate(move)
+      text = "#{move.from}#{move.to}"
+      text += "=#{move.promotion.upcase}" if move.promotion
+      text
+    end
+
     def negamax(board, depth, alpha, beta)
+      @nodes += 1
       color = board.active_color
       moves = all_moves(board, color)
       return board.in_check?(color) ? -(MATE_SCORE + depth) : 0 if moves.empty?
