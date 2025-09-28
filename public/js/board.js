@@ -127,6 +127,7 @@ export default class ChessBoard {
     this.orientation = color;
     Object.entries(this.squareEls).forEach(([square, el]) => this._positionEl(el, square));
     Object.entries(this.pieceEls).forEach(([square, el]) => this._positionEl(el, square));
+    this._renderCoordinates();
   }
 
   flip() {
@@ -180,6 +181,31 @@ export default class ChessBoard {
         this.squareEls[square] = div;
       }
     });
+    this._renderCoordinates();
+  }
+
+  // Labels are children of the edge squares so they ride along automatically
+  // with the squares' own flip transition instead of needing their own.
+  _renderCoordinates() {
+    Object.values(this.squareEls).forEach(el => {
+      el.querySelectorAll('.coord').forEach(label => label.remove());
+    });
+
+    const bottomRank = this.orientation === 'white' ? 1 : 8;
+    FILES.forEach(file => {
+      const label = document.createElement('span');
+      label.className = 'coord coord-file';
+      label.textContent = file;
+      this.squareEls[file + bottomRank].appendChild(label);
+    });
+
+    const leftFile = this.orientation === 'white' ? 'a' : 'h';
+    for (let rank = 1; rank <= 8; rank += 1) {
+      const label = document.createElement('span');
+      label.className = 'coord coord-rank';
+      label.textContent = rank;
+      this.squareEls[leftFile + rank].appendChild(label);
+    }
   }
 
   _createPieceEl(square, code) {

@@ -99,3 +99,30 @@
   opacity: 0;
   transition: opacity var(--move-duration) ease;
 }
+
+.board .square .coord {
+  position: absolute;
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1;
+  pointer-events: none;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.board .square .coord-file {
+  right: 3px;
+  bottom: 2px;
+}
+
+.board .square .coord-rank {
+  left: 3px;
+  top: 2px;
+}
+
+.board .square.light .coord {
+  color: var(--dark-square);
+}
+
+.board .square.dark .coord {
+  color: var(--light-square);
+}

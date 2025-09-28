@@ -8,10 +8,17 @@
   <link rel="stylesheet" href="/css/board.css">
   <style>
     :root {
-      --board-size: 560px;
-    }
-    @media (max-width: 620px) {
-      :root { --board-size: 92vw; }
+      --board-size: min(560px, 92vw, 70vh);
+      --bg: #15161b;
+      --panel: #1b1d24;
+      --panel-2: #23252e;
+      --border: #2e313b;
+      --text: #ecebee;
+      --text-muted: #8b8f9a;
+      --accent: #d7a552;
+      --accent-contrast: #1a1305;
+      --accent-hover: #e3b566;
+      --danger: #ef5350;
     }
 
     * { box-sizing: border-box; }
@@ -24,8 +31,8 @@
       min-height: 100vh;
       margin: 0;
       padding: 32px 16px;
-      background: #1c1c1c;
-      color: #eee;
+      background: var(--bg);
+      color: var(--text);
       font-family: system-ui, -apple-system, sans-serif;
     }
 
@@ -37,7 +44,7 @@
     }
 
     h1 span {
-      color: #888;
+      color: var(--text-muted);
       font-weight: 400;
     }
 
@@ -52,32 +59,145 @@
       font-weight: 600;
     }
 
+    #status.loading::before {
+      content: '';
+      display: inline-block;
+      width: 0.8em;
+      height: 0.8em;
+      margin-right: 0.5em;
+      border: 2px solid var(--text-muted);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      vertical-align: -0.1em;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .clocks {
+      display: flex;
+      gap: 10px;
+    }
+
+    .clocks[hidden] {
+      display: none;
+    }
+
+    .clock {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #222;
+      color: #999;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .clock-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .clock-time {
+      font-size: 1.1rem;
+    }
+
+    .clock.active {
+      border-color: #4caf82;
+      background: #1d2e26;
+      color: #eee;
+    }
+
+    .clock.low {
+      border-color: #e05555;
+      background: #2e1d1d;
+      color: #ff8080;
+      animation: pulse 1s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      50% { opacity: 0.55; }
+    }
+
     .controls {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
-      gap: 10px;
+      gap: 14px;
       align-items: center;
+      padding: 12px 18px;
     }
 
     button, select {
       font: inherit;
-      padding: 6px 12px;
-      border-radius: 6px;
-      border: 1px solid #444;
-      background: #2a2a2a;
-      color: #eee;
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
       cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
     }
 
     button:hover, select:hover {
-      background: #333;
+      background: #2b2e38;
+      border-color: #3a3e4a;
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--accent-contrast);
+      font-weight: 600;
+    }
+
+    button.primary:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+
+    button:focus-visible, select:focus-visible, input:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    input[type="checkbox"] {
+      accent-color: var(--accent);
+      width: 15px;
+      height: 15px;
     }
 
     .controls label {
       display: flex;
       align-items: center;
       gap: 6px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+    }
+
+    .controls label[hidden] {
+      display: none;
     }
 
     .play-area {
@@ -129,6 +249,7 @@
       justify-content: center;
       align-items: center;
       gap: 10px;
+      padding: 12px 18px;
     }
 
     .multiplayer[hidden] {
@@ -138,14 +259,21 @@
     .multiplayer input {
       font: inherit;
       width: 6em;
-      padding: 6px 8px;
-      border-radius: 6px;
-      border: 1px solid #444;
-      background: #2a2a2a;
-      color: #eee;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      color: var(--text);
       text-transform: uppercase;
       letter-spacing: 0.1em;
       text-align: center;
+    }
+
+    .join-error {
+      flex-basis: 100%;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--danger);
     }
 
     #room-info {
@@ -198,18 +326,29 @@
   </style>
 </head>
 <body>
-  <h1>checkmate.rb <span>— chess vs AI</span></h1>
-  <div id="status">Loading...</div>
+  <h1>checkmate.rb <span id="mode-subtitle">— chess vs AI</span></h1>
+  <div id="status" class="loading" aria-live="polite" aria-atomic="true">Loading…</div>
+
+  <div class="clocks" id="clocks" hidden>
+    <div class="clock" id="clock-white">
+      <span class="clock-label">White</span>
+      <span class="clock-time">10:00</span>
+    </div>
+    <div class="clock" id="clock-black">
+      <span class="clock-label">Black</span>
+      <span class="clock-time">10:00</span>
+    </div>
+  </div>
 
   <div class="play-area">
     <div id="board"></div>
     <pre id="ai-debug" class="ai-debug" hidden></pre>
   </div>
 
-  <div class="controls">
-    <button id="new-game">New game</button>
-    <button id="flip">Flip board</button>
-    <label>
+  <div class="controls panel">
+    <button id="new-game" class="primary">New game</button>
+    <button id="flip" type="button">Flip board</button>
+    <label class="ai-only">
       AI strength:
       <select id="difficulty"></select>
     </label>
@@ -217,22 +356,23 @@
       Pieces:
       <select id="piece-set"></select>
     </label>
-    <label>
+    <label class="ai-only">
       <input type="checkbox" id="debug-mode">
       Debug mode
     </label>
   </div>
 
-  <div class="multiplayer" id="multiplayer-setup">
-    <button id="create-room">Play a friend</button>
-    <input id="join-code" placeholder="Code" maxlength="5" autocapitalize="characters">
-    <button id="join-room">Join with code</button>
+  <div class="multiplayer panel" id="multiplayer-setup">
+    <button id="create-room" type="button">Play a friend</button>
+    <input id="join-code" placeholder="Code" maxlength="5" autocapitalize="characters" autocomplete="off" aria-label="Room code">
+    <button id="join-room" type="button">Join with code</button>
+    <span id="join-error" class="join-error" role="alert" hidden></span>
   </div>
 
-  <div class="multiplayer" id="room-info" hidden>
+  <div class="multiplayer panel" id="room-info" hidden>
     <span>Code: <span id="room-code-display"></span></span>
-    <button id="copy-code" type="button">Copy</button>
-    <span id="room-status-text"></span>
+    <button id="copy-code" type="button" aria-label="Copy room code to clipboard">Copy</button>
+    <span id="room-status-text" aria-live="polite"></span>
     <button id="leave-room" type="button">Leave</button>
   </div>
 
@@ -256,6 +396,8 @@
     const statusEl = document.getElementById('status');
     const debugModeEl = document.getElementById('debug-mode');
     const aiDebugEl = document.getElementById('ai-debug');
+    const newGameBtn = document.getElementById('new-game');
+    const difficultySelect = document.getElementById('difficulty');
     let legalMovesBySquare = {};
 
     // -- 1v1-with-a-friend mode -------------------------------------------
@@ -274,12 +416,105 @@
     const roomCodeDisplayEl = document.getElementById('room-code-display');
     const roomStatusTextEl = document.getElementById('room-status-text');
     const joinCodeInput = document.getElementById('join-code');
+    const joinErrorEl = document.getElementById('join-error');
+    const modeSubtitleEl = document.getElementById('mode-subtitle');
+    const aiOnlyEls = document.querySelectorAll('.ai-only');
+    const clocksEl = document.getElementById('clocks');
+    const clockWhiteEl = document.getElementById('clock-white');
+    const clockBlackEl = document.getElementById('clock-black');
+    const clockWhiteTimeEl = clockWhiteEl.querySelector('.clock-time');
+    const clockBlackTimeEl = clockBlackEl.querySelector('.clock-time');
+
+    // Which color's clock is currently running (or null if the game isn't
+    // live), plus the last synced remaining times and when we synced them.
+    // Between polls we interpolate locally so the display counts down
+    // smoothly instead of only updating once per poll.
+    let clocks = { white: 0, black: 0 };
+    let clockActive = null;
+    let clockAnchor = 0;
+    let clockTicker = null;
 
     function setRoomStatusText(text) {
       roomStatusTextEl.textContent = text;
     }
 
+    function setMode(newMode) {
+      mode = newMode;
+      const inRoom = newMode === 'room';
+      modeSubtitleEl.textContent = inRoom ? '— 1v1 with a friend' : '— chess vs AI';
+      aiOnlyEls.forEach(el => { el.hidden = inRoom; });
+      if (inRoom) {
+        aiDebugEl.hidden = true;
+      } else if (debugModeEl.checked) {
+        showAiDebugPlaceholder();
+      } else {
+        renderAiDebug(null);
+      }
+    }
+
+    function formatClock(ms) {
+      const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${minutes}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    function renderClocks(whiteMs, blackMs) {
+      clockWhiteTimeEl.textContent = formatClock(whiteMs);
+      clockBlackTimeEl.textContent = formatClock(blackMs);
+      clockWhiteEl.classList.toggle('active', clockActive === 'white');
+      clockBlackEl.classList.toggle('active', clockActive === 'black');
+      clockWhiteEl.classList.toggle('low', whiteMs < 30_000);
+      clockBlackEl.classList.toggle('low', blackMs < 30_000);
+    }
+
+    function stopClockTicker() {
+      if (clockTicker) clearInterval(clockTicker);
+      clockTicker = null;
+    }
+
+    function startClockTicker() {
+      stopClockTicker();
+      clockTicker = setInterval(() => {
+        const elapsed = Date.now() - clockAnchor;
+        const white = clocks.white - (clockActive === 'white' ? elapsed : 0);
+        const black = clocks.black - (clockActive === 'black' ? elapsed : 0);
+        renderClocks(Math.max(0, white), Math.max(0, black));
+      }, 250);
+    }
+
+    // Resyncs the clocks against the server's authoritative remaining times
+    // (from a room_state poll or a move response) and restarts local ticking.
+    function syncClocks(data) {
+      if (!data.clocks) return;
+      clocks = data.clocks;
+      clockAnchor = Date.now();
+      clockActive = (data.result || data.checkmate || data.stalemate) ? null : data.turn;
+      renderClocks(clocks.white, clocks.black);
+      if (clockActive) {
+        startClockTicker();
+      } else {
+        stopClockTicker();
+      }
+    }
+
+    function showClocks() {
+      clocksEl.hidden = false;
+    }
+
+    function hideClocks() {
+      clocksEl.hidden = true;
+      stopClockTicker();
+      clockActive = null;
+    }
+
+    function setJoinError(text) {
+      joinErrorEl.textContent = text || '';
+      joinErrorEl.hidden = !text;
+    }
+
     function showRoomPanel(code) {
+      setJoinError(null);
       roomCodeDisplayEl.textContent = code;
       multiplayerSetupEl.hidden = true;
       roomInfoEl.hidden = false;
@@ -289,6 +524,7 @@
       multiplayerSetupEl.hidden = false;
       roomInfoEl.hidden = true;
       joinCodeInput.value = '';
+      setJoinError(null);
     }
 
     function stopPolling() {
@@ -340,9 +576,16 @@
       }
     });
 
-    function setStatus({ turn, check, checkmate, stalemate }) {
+    function setStatus({ turn, check, checkmate, stalemate, result }) {
+      statusEl.classList.remove('loading');
       const turnLabel = turn === 'white' ? 'White' : 'Black';
       const winner = turn === 'white' ? 'Black' : 'White';
+      if (result && result.reason === 'timeout') {
+        const winnerLabel = result.winner === 'white' ? 'White' : 'Black';
+        statusEl.textContent = `${winnerLabel} wins on time`;
+        statusEl.classList.remove('check');
+        return;
+      }
       if (checkmate) {
         statusEl.textContent = `Checkmate — ${winner} wins`;
       } else if (stalemate) {
@@ -378,7 +621,9 @@
       if (data.aiDebug) renderAiDebug(data.aiDebug);
       await refreshLegalMoves();
       if (roomActive) {
-        board.setViewOnly(data.turn !== roomColor || !!data.checkmate || !!data.stalemate);
+        const over = !!data.checkmate || !!data.stalemate;
+        board.setViewOnly(data.turn !== roomColor || over);
+        if (over) stopPolling();
       } else if (data.turn === 'black' && !data.checkmate && !data.stalemate) {
         await playAiMove();
       }
@@ -391,26 +636,61 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ from, to }),
       });
-      if (!res.ok) return; // illegal - board already snapped back to `from`
+      if (!res.ok) {
+        // Our own clock could have run out while we were deciding on a move.
+        if (roomActive && res.status === 409) {
+          const data = await res.json().catch(() => ({}));
+          if (data.result) {
+            setStatus(data);
+            board.setViewOnly(true);
+            stopPolling();
+          }
+        }
+        return; // illegal - board already snapped back to `from`
+      }
       const data = await res.json();
-      if (roomActive) roomVersion = data.version;
+      if (roomActive) {
+        roomVersion = data.version;
+        syncClocks(data);
+      }
       await applyMoveResult(data);
+    }
+
+    async function resyncStatus() {
+      try {
+        const res = await fetch('/api/game');
+        const data = await res.json();
+        setStatus(data);
+        await refreshLegalMoves();
+      } catch {
+        statusEl.textContent = 'Connection error — try New game.';
+      }
     }
 
     async function playAiMove() {
       board.setViewOnly(true);
+      newGameBtn.disabled = true;
+      difficultySelect.disabled = true;
       statusEl.textContent = 'AI is thinking…';
       try {
         const url = debugModeEl.checked ? '/api/ai_move?debug=1' : '/api/ai_move';
         const res = await fetch(url, { method: 'POST' });
-        if (res.ok) await applyMoveResult(await res.json());
+        if (res.ok) {
+          await applyMoveResult(await res.json());
+        } else {
+          await resyncStatus();
+        }
+      } catch {
+        await resyncStatus();
       } finally {
         board.setViewOnly(false);
+        newGameBtn.disabled = false;
+        difficultySelect.disabled = false;
       }
     }
 
     async function enterActiveRoom(data) {
-      mode = 'room';
+      setMode('room');
       roomActive = true;
       roomColor = data.color;
       roomVersion = data.version || 0;
@@ -420,6 +700,8 @@
       board.setCheck(data.check);
       setStatus(data);
       setRoomStatusText(`Playing as ${roomColor === 'white' ? 'White' : 'Black'}`);
+      showClocks();
+      syncClocks(data);
       await refreshLegalMoves();
       board.setViewOnly(data.turn !== roomColor || !!data.checkmate || !!data.stalemate);
     }
@@ -435,9 +717,17 @@
         return;
       }
 
+      syncClocks(data);
+
       if (data.version > roomVersion) {
         roomVersion = data.version;
         if (data.move) await applyMoveResult(data.move);
+      }
+
+      if (data.result) {
+        setStatus(data);
+        board.setViewOnly(true);
+        stopPolling();
       }
     }
 
@@ -445,7 +735,7 @@
       const res = await fetch('/api/rooms', { method: 'POST' });
       if (!res.ok) return;
       const data = await res.json();
-      mode = 'room';
+      setMode('room');
       roomActive = false;
       roomCode = data.code;
       roomColor = data.color;
@@ -460,16 +750,18 @@
     }
 
     async function joinRoom(code) {
+      setJoinError(null);
       const res = await fetch('/api/rooms/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code }),
       });
-      const data = await res.json();
       if (!res.ok) {
-        setRoomStatusText(data.error || 'Could not join that game.');
+        const data = await res.json().catch(() => ({}));
+        setJoinError(res.status === 404 ? 'No game found with that code.' : (data.error || 'Could not join that game.'));
         return;
       }
+      const data = await res.json();
       roomCode = data.code;
       showRoomPanel(data.code);
       await enterActiveRoom(data);
@@ -478,12 +770,13 @@
 
     function resetToSolo() {
       stopPolling();
-      mode = 'solo';
+      setMode('solo');
       roomActive = false;
       roomCode = null;
       roomColor = null;
       roomVersion = 0;
       hideRoomPanel();
+      hideClocks();
       board.setViewOnly(false);
       board.setOrientation('white');
     }

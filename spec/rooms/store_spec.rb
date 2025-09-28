@@ -53,15 +53,72 @@ RSpec.describe Rooms::Store do
       expect(room).to be_nil
       expect(token).to be_nil
     end
+
+    it "starts the game's clock" do
+      room = store.create
+      expect(room.turn_started_at).to be_nil
+      store.join(room.code)
+      expect(room.turn_started_at).not_to be_nil
+    end
   end
 
   describe '#apply_move' do
     it 'records the new fen and bumps the version on every move' do
       room = store.create
-      store.apply_move(room, 'fen-after-move', { fen: 'fen-after-move' })
+      store.join(room.code)
+      store.apply_move(room, 'fen-after-move', { fen: 'fen-after-move' }, 'white', game_over: false)
       expect(room.fen).to eq('fen-after-move')
       expect(room.version).to eq(1)
       expect(room.last_move).to eq(fen: 'fen-after-move', version: 1)
+    end
+
+    it "deducts the time the mover took to move from that color's clock" do
+      room = store.create
+      store.join(room.code)
+      room.turn_started_at = Time.now - 5 # simulate 5 seconds of thinking time
+      store.apply_move(room, 'fen-after-move', {}, 'white', game_over: false)
+      expect(room.clock['white']).to be_within(200).of(Rooms::Room::TIME_LIMIT_MS - 5000)
+      expect(room.clock['black']).to eq(Rooms::Room::TIME_LIMIT_MS)
+    end
+
+    it "stops the clock once the move ends the game" do
+      room = store.create
+      store.join(room.code)
+      store.apply_move(room, 'fen-after-move', {}, 'white', game_over: true)
+      expect(room.turn_started_at).to be_nil
+    end
+  end
+
+  describe '#check_timeout!' do
+    it 'returns nil while time remains' do
+      room = store.create
+      store.join(room.code)
+      expect(store.check_timeout!(room, 'white')).to be_nil
+    end
+
+    it 'declares the other color the winner once a clock hits zero' do
+      room = store.create
+      store.join(room.code)
+      room.turn_started_at = Time.now - (Rooms::Room::TIME_LIMIT_MS / 1000.0) - 1
+
+      result = store.check_timeout!(room, 'white')
+      expect(result).to eq('winner' => 'black', 'reason' => 'timeout')
+      expect(room.result).to eq(result)
+      expect(room.clock['white']).to eq(0)
+    end
+
+    it 'does not run the clock before both players have joined' do
+      room = store.create
+      room.instance_variable_set(:@turn_started_at, Time.now - 1_000_000)
+      expect(store.check_timeout!(room, 'white')).to be_nil
+    end
+
+    it 'keeps returning the same result once the game has timed out' do
+      room = store.create
+      store.join(room.code)
+      room.turn_started_at = Time.now - (Rooms::Room::TIME_LIMIT_MS / 1000.0) - 1
+      first = store.check_timeout!(room, 'white')
+      expect(store.check_timeout!(room, 'white')).to eq(first)
     end
   end
 end

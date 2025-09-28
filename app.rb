@@ -102,13 +102,17 @@ class App < Sinatra::Base
     halt 403, json(error: 'not your game') unless color
 
     game = Chess::Game.new(room.fen)
-    halt 403, json(error: "not #{color}'s turn") unless game.active_color == color
+    active = game.active_color
+    timeout_result = ROOMS.check_timeout!(room, active)
+    halt 409, json(error: 'time is up', result: timeout_result) if timeout_result
+    halt 403, json(error: "not #{color}'s turn") unless active == color
 
     payload = parsed_body
     result = game.move(payload['from'], payload['to'], promotion: payload['promotion'])
     response = move_response(game, result)
-    ROOMS.apply_move(room, result[:fen], response)
-    json response.merge(color: color, version: room.version)
+    game_over = result[:checkmate] || result[:stalemate]
+    ROOMS.apply_move(room, result[:fen], response, color, game_over: game_over)
+    json response.merge(color: color, version: room.version, clocks: room.clocks(game.active_color), result: room.result)
   rescue ArgumentError => e
     status 422
     json error: e.message
@@ -140,14 +144,18 @@ class App < Sinatra::Base
 
   def room_state(room, color)
     game = Chess::Game.new(room.fen)
+    active = game.active_color
+    ROOMS.check_timeout!(room, active)
     {
       code: room.code,
       color: color,
       status: room.status,
       fen: room.fen,
-      turn: game.active_color,
+      turn: active,
       version: room.version,
-      move: room.last_move
+      move: room.last_move,
+      clocks: room.clocks(active),
+      result: room.result
     }.merge(game.status)
   end
 

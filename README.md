@@ -14,6 +14,8 @@ A chess game where you play White against a Ruby-built AI opponent, or 1v1 again
 - Adjustable AI strength (illustrative Elo tiers, tuned via search depth and move randomness)
 - Click-to-move and drag-and-drop board, with a choice of piece sets
 - 1v1 with a friend: "Play a friend" creates a room and a 5-character code to send them; they join with the code and each side can only move its own pieces, on its own turn. There's no websocket, so the opponent's moves show up via polling (~1.2s)
+- 10-minute clock per side in 1v1 games, tracked server-side so both players see the same time regardless of their own browser; running out of time ends the game for that side
+- The UI clearly distinguishes the two modes — the subtitle, clock, and AI-only controls (strength, debug mode) switch depending on whether you're playing the AI or a friend
 
 ## Requirements
 

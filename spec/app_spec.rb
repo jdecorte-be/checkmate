@@ -165,5 +165,37 @@ RSpec.describe App do
                       'CONTENT_TYPE' => 'application/json'
       expect(bystander.last_response.status).to eq(403)
     end
+
+    it 'gives each side a 10-minute clock once the game starts' do
+      post '/api/rooms'
+      code = JSON.parse(last_response.body)['code']
+
+      black = new_client
+      black.post '/api/rooms/join', { code: code }.to_json, 'CONTENT_TYPE' => 'application/json'
+      body = JSON.parse(black.last_response.body)
+      expect(body['clocks']['white']).to be_within(1000).of(10 * 60 * 1000)
+      expect(body['clocks']['black']).to be_within(1000).of(10 * 60 * 1000)
+    end
+
+    it "declares the opponent the winner when a player's clock runs out" do
+      post '/api/rooms'
+      code = JSON.parse(last_response.body)['code']
+      white = self
+
+      black = new_client
+      black.post '/api/rooms/join', { code: code }.to_json, 'CONTENT_TYPE' => 'application/json'
+
+      room = App::ROOMS.find(code)
+      room.turn_started_at = Time.now - (Rooms::Room::TIME_LIMIT_MS / 1000.0) - 1
+
+      white.post "/api/rooms/#{code}/move", { from: 'e2', to: 'e4' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(white.last_response.status).to eq(409)
+      body = JSON.parse(white.last_response.body)
+      expect(body['result']).to eq('winner' => 'black', 'reason' => 'timeout')
+
+      black.get "/api/rooms/#{code}"
+      poll_body = JSON.parse(black.last_response.body)
+      expect(poll_body['result']).to eq('winner' => 'black', 'reason' => 'timeout')
+    end
   end
 end
