@@ -4,7 +4,7 @@ install:
 	bundle install
 
 run:
-	bundle exec rackup config.ru -p 4567
+	bundle exec puma config.ru -p 4567
 
 test:
 	bundle exec rspec
