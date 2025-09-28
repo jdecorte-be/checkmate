@@ -1,0 +1,101 @@
+:root {
+  --board-size: 560px;
+  --light-square: #f3e4cf;
+  --dark-square: #ceb3a2;
+  --highlight-select: rgba(238, 255, 255, 0.85);
+  --highlight-move: rgba(20, 85, 30, 0.35);
+  --highlight-last-from: #fffcdd;
+  --highlight-last-to: #fff79b;
+  --highlight-check: #e70000;
+  --flip-duration: 200ms;
+  --move-duration: 160ms;
+}
+
+.board {
+  position: relative;
+  width: var(--board-size);
+  height: var(--board-size);
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+  user-select: none;
+  overflow: visible;
+}
+
+.board .square {
+  position: absolute;
+  width: 12.5%;
+  height: 12.5%;
+  box-sizing: border-box;
+  transition: left var(--flip-duration) ease, top var(--flip-duration) ease;
+}
+
+.board .square.light {
+  background-color: var(--light-square);
+}
+
+.board .square.dark {
+  background-color: var(--dark-square);
+}
+
+.board .square.last-move-from {
+  background-color: var(--highlight-last-from);
+}
+
+.board .square.last-move-to {
+  background-color: var(--highlight-last-to);
+}
+
+.board .square.selected::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--highlight-select);
+}
+
+.board .square.move-dest::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    var(--highlight-select) 22%,
+    transparent 0,
+    var(--highlight-move) 0,
+    transparent 0
+  );
+  cursor: pointer;
+}
+
+.board .square.in-check {
+  background: radial-gradient(
+    ellipse at center,
+    var(--highlight-check) 0%,
+    rgba(231, 0, 0, 1) 25%,
+    rgba(169, 0, 0, 0) 89%
+  );
+}
+
+.board .piece {
+  position: absolute;
+  width: 12.5%;
+  height: 12.5%;
+  background-size: 80%;
+  background-position: center;
+  background-repeat: no-repeat;
+  cursor: grab;
+  z-index: 2;
+  transition: left var(--move-duration) ease, top var(--move-duration) ease;
+  will-change: left, top;
+  touch-action: none;
+}
+
+.board .piece.dragging {
+  cursor: grabbing;
+  z-index: 9;
+  transition: none;
+  pointer-events: none;
+}
+
+.board .piece.fading {
+  z-index: 1;
+  opacity: 0;
+  transition: opacity var(--move-duration) ease;
+}

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>checkmate.rb</title>
+  <link rel="stylesheet" href="/css/board.css">
+  <style>
+    :root {
+      --board-size: 560px;
+    }
+    @media (max-width: 620px) {
+      :root { --board-size: 92vw; }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      min-height: 100vh;
+      margin: 0;
+      padding: 32px 16px;
+      background: #1c1c1c;
+      color: #eee;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    h1 span {
+      color: #888;
+      font-weight: 400;
+    }
+
+    #status {
+      min-height: 1.4em;
+      font-size: 1rem;
+      color: #ccc;
+    }
+
+    #status.check {
+      color: #ff6b6b;
+      font-weight: 600;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      align-items: center;
+    }
+
+    button, select {
+      font: inherit;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: #2a2a2a;
+      color: #eee;
+      cursor: pointer;
+    }
+
+    button:hover, select:hover {
+      background: #333;
+    }
+
+    .note {
+      max-width: var(--board-size);
+      margin-top: 4px;
+      padding-top: 16px;
+      border-top: 1px solid #2a2a2a;
+      font-size: 0.8rem;
+      letter-spacing: 0.02em;
+      color: #666;
+      text-align: center;
+    }
+
+    .note a {
+      color: #999;
+      text-decoration: none;
+      border-bottom: 1px solid #444;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+
+    .note a:hover,
+    .note a:focus-visible {
+      color: #eee;
+      border-color: #999;
+    }
+  </style>
+</head>
+<body>
+  <h1>checkmate.rb <span>— chess vs AI</span></h1>
+  <div id="status">Loading...</div>
+
+  <div id="board"></div>
+
+  <div class="controls">
+    <button id="new-game">New game</button>
+    <button id="flip">Flip board</button>
+    <label>
+      AI strength:
+      <select id="difficulty"></select>
+    </label>
+    <label>
+      Pieces:
+      <select id="piece-set"></select>
+    </label>
+  </div>
+
+  <p class="note">
+    Made by <a href="https://github.com/jdecorte-be" target="_blank" rel="noopener">jdecorte</a>,
+    <a href="https://github.com/jdecorte-be/checkmate" target="_blank" rel="noopener">source code</a>.
+  </p>
+
+  <script type="module">
+    import ChessBoard, { fenToPosition } from '/js/board.js';
+
+    const PIECE_SETS = [
+      'alpha', 'anarcandy', 'caliente', 'california', 'cardinal', 'cburnett',
+      'celtic', 'chess7', 'chessnut', 'companion', 'cooke', 'disguised',
+      'dubrovny', 'fantasy', 'firi', 'fresca', 'gioco', 'governor', 'horsey',
+      'icpieces', 'kiwen-suwi', 'kosal', 'leipzig', 'letter', 'maestro',
+      'merida', 'monarchy', 'mpchess', 'pirouetti', 'pixel', 'reillycraig',
+      'rhosgfx', 'riohacha', 'shapes', 'spatial', 'staunty', 'tatiana', 'xkcd',
+    ];
+
+    const statusEl = document.getElementById('status');
+    let legalMovesBySquare = {};
+
+    function setStatus({ turn, check, checkmate, stalemate }) {
+      const turnLabel = turn === 'white' ? 'White' : 'Black';
+      const winner = turn === 'white' ? 'Black' : 'White';
+      if (checkmate) {
+        statusEl.textContent = `Checkmate — ${winner} wins`;
+      } else if (stalemate) {
+        statusEl.textContent = 'Stalemate — draw';
+      } else if (check) {
+        statusEl.textContent = `${turnLabel} to move — check!`;
+      } else {
+        statusEl.textContent = `${turnLabel} to move`;
+      }
+      statusEl.classList.toggle('check', !!check || !!checkmate);
+    }
+
+    async function refreshLegalMoves() {
+      const res = await fetch('/api/legal_moves');
+      legalMovesBySquare = await res.json();
+    }
+
+    const board = new ChessBoard(document.getElementById('board'), {
+      pieceSet: 'cburnett',
+      getDests: square => legalMovesBySquare[square] || [],
+      onMove: ({ from, to }) => sendMove(from, to),
+    });
+
+    async function applyMoveResult(data) {
+      board.move(data.lastMove.from, data.lastMove.to, {
+        capture: data.capture,
+        secondary: data.secondary,
+        promotion: data.promotion,
+      });
+      board.setCheck(data.check);
+      setStatus(data);
+      await refreshLegalMoves();
+      if (data.turn === 'black' && !data.checkmate && !data.stalemate) {
+        await playAiMove();
+      }
+    }
+
+    async function sendMove(from, to) {
+      const res = await fetch('/api/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
+      });
+      if (!res.ok) return; // illegal - board already snapped back to `from`
+      await applyMoveResult(await res.json());
+    }
+
+    async function playAiMove() {
+      board.setViewOnly(true);
+      statusEl.textContent = 'AI is thinking…';
+      try {
+        const res = await fetch('/api/ai_move', { method: 'POST' });
+        if (res.ok) await applyMoveResult(await res.json());
+      } finally {
+        board.setViewOnly(false);
+      }
+    }
+
+    async function loadGame() {
+      const res = await fetch('/api/game');
+      const data = await res.json();
+      board.setPosition(fenToPosition(data.fen));
+      board.setCheck(data.check);
+      setStatus(data);
+      await refreshLegalMoves();
+      if (data.turn === 'black' && !data.checkmate && !data.stalemate) {
+        await playAiMove();
+      }
+    }
+
+    async function newGame() {
+      const res = await fetch('/api/new_game', { method: 'POST' });
+      const data = await res.json();
+      board.setPosition(fenToPosition(data.fen));
+      board.setLastMove(null, null);
+      board.setCheck(data.check);
+      setStatus(data);
+      await refreshLegalMoves();
+    }
+
+    async function loadDifficulty() {
+      const res = await fetch('/api/difficulty');
+      const { levels, elo } = await res.json();
+      const select = document.getElementById('difficulty');
+      levels.forEach(lvl => {
+        const opt = document.createElement('option');
+        opt.value = lvl;
+        opt.textContent = `~${lvl} Elo`;
+        select.appendChild(opt);
+      });
+      select.value = elo;
+      select.addEventListener('change', () => {
+        fetch('/api/difficulty', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ elo: Number(select.value) }),
+        });
+      });
+    }
+
+    loadGame();
+    loadDifficulty();
+
+    document.getElementById('new-game').addEventListener('click', newGame);
+    document.getElementById('flip').addEventListener('click', () => board.flip());
+
+    const select = document.getElementById('piece-set');
+    PIECE_SETS.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    });
+    select.value = board.pieceSet;
+    select.addEventListener('change', () => board.setPieceSet(select.value));
+  </script>
+</body>
+</html>
