@@ -39,6 +39,18 @@ Check the "Debug mode" box in the UI to see what the AI is thinking after each o
 
 ![AI debug panel showing search depth, nodes, and candidate moves](docs/ai-debug-panel.png)
 
+## Why the engine doesn't search deeper
+
+Each Elo tier in `Ai::Engine::LEVELS` caps search at a modest depth (1-5 plies) within a short time budget (1-6s). A few reasons compound to keep it shallow:
+
+- **Synchronous HTTP request** — `POST /api/ai_move` blocks until the search returns, so search time is directly page-load latency. There's no background job or websocket to search asynchronously, hence the hard per-move time budget and the `SearchTimeout` that aborts a mid-iteration search once the deadline passes.
+- **Move generation dominates per-node cost** — the move generator is plain Ruby (array/FEN-based, no bitboards), and it's needed at every node, including quiescence captures. That makes each additional ply expensive in wall-clock time.
+- **Deliberate Elo simulation** — lower tiers are shallow on purpose (plus blunder chance and score noise) to emulate weaker play, not just to save time.
+- **No transposition table** — iterative deepening re-searches each depth from scratch with no cache of previously-seen positions, so work isn't reused across iterations.
+- **Ruby itself** — single-threaded, no compiled hot path, which caps achievable nodes/sec versus a native engine.
+
+To search deeper, the highest-leverage changes would be a transposition table, a bitboard-based move generator, and moving the search off the request thread (background job + polling/websocket) so the time budget isn't tied to HTTP latency.
+
 ## Test
 
 ```sh
