@@ -31,7 +31,7 @@ class App < Sinatra::Base
   end
 
   post '/api/difficulty' do
-    payload = JSON.parse(request.body.read)
+    payload = parsed_body
     session[:ai_elo] = Ai::Engine.new(elo: payload['elo'].to_i).elo
     json levels: Ai::Engine.levels, elo: session[:ai_elo]
   end
@@ -43,7 +43,7 @@ class App < Sinatra::Base
   end
 
   post '/api/move' do
-    payload = JSON.parse(request.body.read)
+    payload = parsed_body
     game = Chess::Game.new(current_fen)
     result = game.move(payload['from'], payload['to'], promotion: payload['promotion'])
     session[:fen] = result[:fen]
@@ -67,6 +67,12 @@ class App < Sinatra::Base
   end
 
   private
+
+  def parsed_body
+    JSON.parse(request.body.read)
+  rescue JSON::ParserError
+    halt 422, json(error: 'invalid JSON body')
+  end
 
   def current_fen
     session[:fen] ||= Chess::Game::STARTING_FEN
