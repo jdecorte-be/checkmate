@@ -4,6 +4,8 @@ A chess game where you play White against a Ruby-built AI opponent, served by a 
 
 ![checkmate.rb board with debug mode enabled](docs/screenshot.png)
 
+![AI debug panel showing search depth, nodes, and candidate moves](docs/ai-debug-panel.png)
+
 ## Features
 
 - Fully legal move generation: check, checkmate, stalemate, castling, en passant, and promotion
@@ -49,4 +51,4 @@ spec/                RSpec tests
 
 ## License
 
-Source code is available for reference; no license has been chosen yet.
+[MIT](LICENSE)
