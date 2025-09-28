@@ -1,0 +1,42 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build static preview
+        run: |
+          mkdir -p _site
+          cp -r public/. _site/
+          # This is a Sinatra app; GitHub Pages can only serve the static
+          # frontend, so /api/* calls here will 404 (no backend). It's rooted
+          # under /checkmate/ as a project page, so fix the absolute asset paths.
+          sed -i 's#<head>#<head>\n  <base href="/checkmate/">#' _site/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
