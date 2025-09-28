@@ -73,6 +73,32 @@
       background: #333;
     }
 
+    .controls label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ai-debug {
+      max-width: var(--board-size);
+      width: 100%;
+      margin: 0;
+      padding: 10px 12px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #161616;
+      color: #9fd39f;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+
+    .ai-debug .best {
+      color: #f0e08a;
+    }
+
     .note {
       max-width: var(--board-size);
       margin-top: 4px;
@@ -115,7 +141,13 @@
       Pieces:
       <select id="piece-set"></select>
     </label>
+    <label>
+      <input type="checkbox" id="debug-mode">
+      Debug mode
+    </label>
   </div>
+
+  <pre id="ai-debug" class="ai-debug" hidden></pre>
 
   <p class="note">
     Made by <a href="https://github.com/jdecorte-be" target="_blank" rel="noopener">jdecorte</a>,
@@ -135,7 +167,36 @@
     ];
 
     const statusEl = document.getElementById('status');
+    const debugModeEl = document.getElementById('debug-mode');
+    const aiDebugEl = document.getElementById('ai-debug');
     let legalMovesBySquare = {};
+
+    function renderAiDebug(debug) {
+      if (!debug) {
+        aiDebugEl.hidden = true;
+        aiDebugEl.textContent = '';
+        return;
+      }
+      const lines = [
+        `AI ~${debug.elo} elo · depth ${debug.depth} · ${debug.nodes} nodes · ${debug.elapsedMs}ms`,
+      ];
+      if (debug.blunder) {
+        lines.push('(blunder — played a random legal move instead of searching)');
+      } else {
+        debug.candidates.forEach((candidate, i) => {
+          const pawns = candidate.score / 100;
+          const sign = pawns >= 0 ? '+' : '';
+          const marker = i === 0 ? '▶' : ' ';
+          lines.push(`${marker} ${candidate.move.padEnd(6)} ${sign}${pawns.toFixed(2)}`);
+        });
+      }
+      aiDebugEl.textContent = lines.join('\n');
+      aiDebugEl.hidden = false;
+    }
+
+    debugModeEl.addEventListener('change', () => {
+      if (!debugModeEl.checked) renderAiDebug(null);
+    });
 
     function setStatus({ turn, check, checkmate, stalemate }) {
       const turnLabel = turn === 'white' ? 'White' : 'Black';
@@ -171,6 +232,7 @@
       });
       board.setCheck(data.check);
       setStatus(data);
+      if (data.aiDebug) renderAiDebug(data.aiDebug);
       await refreshLegalMoves();
       if (data.turn === 'black' && !data.checkmate && !data.stalemate) {
         await playAiMove();
@@ -191,7 +253,8 @@
       board.setViewOnly(true);
       statusEl.textContent = 'AI is thinking…';
       try {
-        const res = await fetch('/api/ai_move', { method: 'POST' });
+        const url = debugModeEl.checked ? '/api/ai_move?debug=1' : '/api/ai_move';
+        const res = await fetch(url, { method: 'POST' });
         if (res.ok) await applyMoveResult(await res.json());
       } finally {
         board.setViewOnly(false);
@@ -217,6 +280,7 @@
       board.setLastMove(null, null);
       board.setCheck(data.check);
       setStatus(data);
+      renderAiDebug(null);
       await refreshLegalMoves();
     }
 
