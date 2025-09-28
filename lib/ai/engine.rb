@@ -18,7 +18,7 @@ module Ai
     # legal-move generation (needed to filter to legal captures) is the
     # search's dominant cost per node - a deep quiescence horizon in a
     # capture-heavy middlegame can outweigh the main search entirely.
-    QUIESCENCE_PLIES = 4
+    QUIESCENCE_PLIES = 3
 
     # Skips a quiescence capture outright when even winning the captured
     # piece for free couldn't come close to raising alpha (plus a margin
@@ -320,9 +320,8 @@ module Ai
     def mvv_lva(board, move)
       return 0 unless capture?(board, move)
 
-      victim = board.piece_at(move.to) || (board.white?(board.piece_at(move.from)) ? 'p' : 'P')
       attacker = board.piece_at(move.from)
-      (PIECE_VALUES.fetch(victim.downcase) * 16) - PIECE_VALUES.fetch(attacker.downcase)
+      (capture_value(board, move) * 16) - PIECE_VALUES.fetch(attacker.downcase)
     end
 
     def all_moves(board, color)
