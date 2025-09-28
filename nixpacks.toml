@@ -1,0 +1,10 @@
+providers = ["ruby"]
+
+[phases.setup]
+nixPkgs = ["...", "ruby_3_4"]
+
+[phases.install]
+cmds = ["bundle install"]
+
+[start]
+cmd = "bundle exec puma -e production -p ${PORT:-3000}"

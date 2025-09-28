@@ -117,8 +117,8 @@ module Chess
       new_squares.delete(move.en_passant_capture) if move.en_passant_capture
       new_squares[move.to] = move.promotion ? promoted_piece(piece, move.promotion) : piece
       if move.castle
-        rook = new_squares.delete(move.castle[:rook_from])
-        new_squares[move.castle[:rook_to]] = rook
+        rook = new_squares.delete(move.castle.rook_from)
+        new_squares[move.castle.rook_to] = rook
       end
 
       Board.new(
