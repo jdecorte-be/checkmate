@@ -306,7 +306,7 @@ export default class ChessBoard {
       drag.dragging = true;
       drag.boardRect = this.el.getBoundingClientRect();
       drag.el.classList.add('dragging');
-      this.selected = null;
+      this.selected = drag.square;
       this.squareEls[drag.square]?.classList.add('selected');
       if (this.getDests) this.showMoveDests(this.getDests(drag.square) || []);
     }
