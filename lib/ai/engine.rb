@@ -1,50 +1,27 @@
 require_relative '../chess/move_generator'
 
 module Ai
-  # Depth-limited negamax search with alpha-beta pruning and a material +
-  # piece-square-table evaluation. Strength is tuned via `elo`, snapped to
-  # the nearest of a few discrete tiers below - these are illustrative
-  # labels, not a calibrated rating (there's no rating pool to calibrate
-  # against). Weaker tiers search less deep, occasionally play a random
-  # legal move outright ("blunder"), and add random noise to move scores
-  # so they don't always find their single best move even when they do
-  # search.
+  # Negamax + alpha-beta, scored on material and piece-square tables.
+  # The elo tiers are just rough labels. Lower tiers search shallower,
+  # sometimes play a random move, and add noise to their scores.
   class Engine
     MATE_SCORE = 1_000_000
 
-    # Extra capture-only plies searched past the nominal depth, to avoid
-    # the horizon effect (e.g. grabbing a pawn that's defended by a piece
-    # just past the search cutoff). See `quiescence`. Kept modest because
-    # legal-move generation (needed to filter to legal captures) is the
-    # search's dominant cost per node - a deep quiescence horizon in a
-    # capture-heavy middlegame can outweigh the main search entirely.
+    # Extra capture-only plies past the main depth (see `quiescence`).
+    # Kept small since move generation is the expensive part.
     QUIESCENCE_PLIES = 3
 
-    # Skips a quiescence capture outright when even winning the captured
-    # piece for free couldn't come close to raising alpha (plus a margin
-    # for follow-up tactics). Cuts the many hopeless captures a
-    # capture-heavy position offers without recursing into them.
+    # Skip captures that can't possibly raise alpha, even if they win the piece for free.
     DELTA_MARGIN = 200
 
-    # How often (in visited nodes) the search checks the wall clock
-    # against its deadline. Node cost varies a lot by position (a
-    # captures-heavy middlegame is far pricier per node than a sparse
-    # endgame), so predicting whether the next iterative-deepening depth
-    # will fit the time budget isn't reliable - instead the search
-    # aborts itself mid-iteration once time is up (see `check_time!`).
+    # Check the clock every N nodes and bail out mid-search once time's up.
     NODES_PER_TIME_CHECK = 1024
 
-    # Raised to unwind out of an in-progress iteration once its deadline
-    # passes; the iteration's (possibly incomplete) scores are discarded
-    # in favor of the last iteration that finished cleanly.
+    # Thrown when time runs out; we fall back to the last finished depth.
     SearchTimeout = Class.new(StandardError)
 
-    # `max_depth` is searched via iterative deepening (depth 1, 2, ...),
-    # reusing each completed depth's best move to order the next and
-    # bailing out once `time_budget` (seconds) is spent - so search goes
-    # as deep as the position allows without blocking the synchronous
-    # HTTP request indefinitely. Quiescence search extends tactical lines
-    # (captures, check evasions) past `max_depth` regardless of budget.
+    # Iterative deepening up to max_depth, stopping early if time_budget
+    # (seconds) runs out so the request doesn't hang.
     LEVELS = [
       { elo: 400,  max_depth: 1, blunder: 0.40, noise: 150, time_budget: 1.0 },
       { elo: 800,  max_depth: 2, blunder: 0.15, noise: 100, time_budget: 1.0 },
@@ -137,10 +114,8 @@ module Ai
       @level[:elo]
     end
 
-    # { from:, to:, promotion: } for the chosen move, or nil if the side to
-    # move has no legal moves (checkmate/stalemate). Pass debug: true to
-    # also get a :debug key with search stats and per-candidate scores,
-    # for a "what was the AI thinking" view.
+    # Returns { from:, to:, promotion: }, or nil if there are no legal moves.
+    # debug: true adds search stats for the debug panel.
     def choose_move(game, debug: false)
       board = game.board
       moves = all_moves(board, board.active_color)
@@ -172,13 +147,8 @@ module Ai
 
     private
 
-    # Iterative deepening from the root: searches depth 1, then 2, and so
-    # on, re-ordering each iteration around the previous one's best move
-    # (a much better guess than capture-first alone, so alpha-beta prunes
-    # harder at deeper iterations). Stops once the level's max depth is
-    # hit, or once `@deadline` passes (checked periodically inside the
-    # search itself - see `check_time!`), always returning the last
-    # iteration that finished cleanly.
+    # Search depth 1, 2, 3... trying the previous best move first each time.
+    # Returns the last depth that finished before the deadline.
     def search(board, moves, started_at)
       @deadline = started_at + @level[:time_budget]
       scored = moves.map { |m| [m, 0] }
@@ -253,11 +223,8 @@ module Ai
       best
     end
 
-    # Extends the search past the nominal depth along "noisy" lines only
-    # (captures, and any move while in check) until the position settles
-    # down or `plies_left` runs out. Without this, the engine would
-    # regularly misjudge a capture as free simply because the recapture
-    # happened to fall just past the search horizon.
+    # Keep searching captures (or check evasions) until things calm down,
+    # so we don't think a piece is free when the recapture is one ply away.
     def quiescence(board, alpha, beta, plies_left)
       @nodes += 1
       check_time!
@@ -310,9 +277,7 @@ module Ai
       board.occupied?(move.to) || !move.en_passant_capture.nil?
     end
 
-    # Most Valuable Victim - Least Valuable Attacker: captures first
-    # (better ones first) for the best alpha-beta cutoffs, quiet moves
-    # after in their original (roughly central-first) order.
+    # MVV-LVA: best captures first, quiet moves after.
     def order(board, moves)
       moves.sort_by { |m| -mvv_lva(board, m) }
     end
