@@ -121,4 +121,113 @@ RSpec.describe Chess::Game do
     expect(game.legal_moves).to eq({})
     expect(game.status).to eq(check: nil, checkmate: false, stalemate: true)
   end
+
+  describe '#move result payload' do
+    it 'returns exactly the documented keys for a quiet move' do
+      result = described_class.new.move('g1', 'f3')
+      expect(result).to eq(
+        fen: 'rnbqkbnr/pppppppp/8/8/8/5N2/PPPPPPPP/RNBQKB1R b KQkq - 1 1',
+        last_move: { from: 'g1', to: 'f3' },
+        capture: nil,
+        secondary: nil,
+        promotion: nil,
+        check: nil,
+        checkmate: false,
+        stalemate: false
+      )
+    end
+
+    it 'reports a black promotion as bQ' do
+      game = described_class.new('4k3/8/8/8/8/8/p7/4K3 b - - 0 1')
+      expect(game.move('a2', 'a1')[:promotion]).to eq('bQ')
+    end
+
+    it 'reports both the capture square and the promotion for a capturing underpromotion' do
+      game = described_class.new('1r2k3/P7/8/8/8/8/8/4K3 w - - 0 1')
+      result = game.move('a7', 'b8', promotion: 'r')
+      expect(result[:capture]).to eq('b8')
+      expect(result[:promotion]).to eq('wR')
+      expect(game.placement['b8']).to eq('R')
+    end
+
+    it 'reports check with the checked king square but no mate' do
+      game = described_class.new('4k3/8/8/8/8/8/8/R3K3 w - - 0 1')
+      result = game.move('a1', 'a8')
+      expect(result.slice(:check, :checkmate, :stalemate)).to eq(check: 'e8', checkmate: false, stalemate: false)
+    end
+
+    it 'reports the black castle rook hop as the secondary move' do
+      game = described_class.new('4k2r/8/8/8/8/8/8/4K3 b k - 0 1')
+      expect(game.move('e8', 'g8')[:secondary]).to eq(from: 'h8', to: 'f8')
+      expect(game.fen).to eq('5rk1/8/8/8/8/8/8/4K3 w - - 1 2')
+    end
+
+    it 'reports stalemate when the move leaves the opponent without moves or check' do
+      game = described_class.new('k7/8/2Q5/8/8/8/8/6K1 w - - 0 1')
+      result = game.move('c6', 'b6')
+      expect(result.slice(:check, :checkmate, :stalemate)).to eq(check: nil, checkmate: false, stalemate: true)
+    end
+  end
+
+  describe 'checkmate patterns' do
+    it 'detects a back-rank mate' do
+      game = described_class.new('6k1/5ppp/8/8/8/8/8/R5K1 w - - 0 1')
+      result = game.move('a1', 'a8')
+      expect(result[:checkmate]).to be true
+      expect(result[:check]).to eq('g8')
+    end
+
+    it 'detects a smothered mate by a knight' do
+      game = described_class.new('6rk/6pp/8/6N1/8/8/8/6K1 w - - 0 1')
+      result = game.move('g5', 'f7')
+      expect(result[:checkmate]).to be true
+      expect(result[:check]).to eq('h8')
+    end
+
+    it 'does not call it mate when the checking piece can be captured' do
+      game = described_class.new('6k1/5ppp/8/8/8/5b2/8/R5K1 w - - 0 1') # bishop f3 covers a8
+      result = game.move('a1', 'a8')
+      expect(result[:check]).to eq('g8')
+      expect(result[:checkmate]).to be false
+    end
+
+    it "detects scholar's mate from the opening" do
+      game = described_class.new
+      [%w[e2 e4], %w[e7 e5], %w[f1 c4], %w[b8 c6], %w[d1 h5], %w[g8 f6]].each { |f, t| game.move(f, t) }
+      result = game.move('h5', 'f7')
+      expect(result[:checkmate]).to be true
+      expect(result[:capture]).to eq('f7')
+      expect(game.fen).to eq('r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4')
+    end
+  end
+
+  describe '#legal_moves' do
+    it 'lists exactly the 20 opening moves as destination squares' do
+      moves = described_class.new.legal_moves
+      expect(moves.values.sum(&:length)).to eq(20)
+      expect(moves['b1']).to contain_exactly('a3', 'c3')
+      expect(moves['g1']).to contain_exactly('f3', 'h3')
+      expect(moves.keys).not_to include('a1', 'c1', 'd1', 'e1', 'f1', 'h1')
+    end
+  end
+
+  describe 'error messages' do
+    it 'names the empty square' do
+      expect { described_class.new.move('d4', 'd5') }.to raise_error(ArgumentError, 'no piece on d4')
+    end
+
+    it "names the color that isn't on move" do
+      expect { described_class.new.move('d7', 'd5') }.to raise_error(ArgumentError, "it's not black's turn")
+    end
+
+    it 'names the illegal move' do
+      expect { described_class.new.move('d2', 'd5') }.to raise_error(ArgumentError, 'illegal move d2-d5')
+    end
+
+    it 'leaves the position unchanged after a rejected move' do
+      game = described_class.new
+      expect { game.move('d2', 'd5') }.to raise_error(ArgumentError)
+      expect(game.fen).to eq(described_class::STARTING_FEN)
+    end
+  end
 end
