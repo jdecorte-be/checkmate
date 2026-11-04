@@ -610,26 +610,80 @@
       onMove: ({ from, to }) => sendMove(from, to),
     });
 
-    async function applyMoveResult(data) {
-      board.move(data.lastMove.from, data.lastMove.to, {
-        capture: data.capture,
-        secondary: data.secondary,
-        promotion: data.promotion,
-      });
+    async function applyMoveResult(data, { alreadyShown = false } = {}) {
+      if (!alreadyShown) {
+        board.move(data.lastMove.from, data.lastMove.to, {
+          capture: data.capture,
+          secondary: data.secondary,
+          promotion: data.promotion,
+        });
+      }
       board.setCheck(data.check);
       setStatus(data);
       if (data.aiDebug) renderAiDebug(data.aiDebug);
-      await refreshLegalMoves();
+      const aiToMove = !roomActive && data.turn === 'black' && !data.checkmate && !data.stalemate;
+      // Black's legal moves are useless to us when the AI is about to play
+      // them; skipping that round-trip gets the AI request out sooner.
+      if (!aiToMove) await refreshLegalMoves();
       if (roomActive) {
         const over = !!data.checkmate || !!data.stalemate;
         board.setViewOnly(data.turn !== roomColor || over);
         if (over) stopPolling();
-      } else if (data.turn === 'black' && !data.checkmate && !data.stalemate) {
+      } else if (aiToMove) {
         await playAiMove();
       }
     }
 
+    // Board options for showing a move before the server confirms it: the
+    // rook hop for castling, the captured pawn's square for en passant, and
+    // a queen for promotion (the server's default too).
+    function predictMoveOpts(from, to) {
+      const piece = board.position[from];
+      const opts = {};
+      if (!piece) return opts;
+      const df = to.charCodeAt(0) - from.charCodeAt(0);
+      if (piece[1] === 'K' && Math.abs(df) === 2) {
+        const rank = from[1];
+        opts.secondary = df > 0 ? { from: `h${rank}`, to: `f${rank}` } : { from: `a${rank}`, to: `d${rank}` };
+      }
+      if (piece[1] === 'P') {
+        if (df !== 0 && !board.position[to]) opts.capture = to[0] + from[1];
+        if (to[1] === '8' || to[1] === '1') opts.promotion = `${piece[0]}Q`;
+      }
+      return opts;
+    }
+
+    // Puts the board back in line with the server after an optimistic move
+    // the server rejected.
+    async function resyncBoard() {
+      const res = await fetch(roomActive ? `/api/rooms/${roomCode}` : '/api/game');
+      if (!res.ok) return;
+      const data = await res.json();
+      board.setPosition(fenToPosition(data.fen));
+      board.setCheck(data.check);
+      setStatus(data);
+      await refreshLegalMoves();
+    }
+
+    let movePending = false;
+
     async function sendMove(from, to) {
+      if (movePending) return;
+      // Show the move right away when we already know it's legal, instead of
+      // snapping back and waiting a full round-trip to the server.
+      const optimistic = (legalMovesBySquare[from] || []).includes(to);
+      if (optimistic) board.move(from, to, predictMoveOpts(from, to));
+      movePending = true;
+      try {
+        await submitMove(from, to, optimistic);
+      } catch {
+        if (optimistic) await resyncBoard().catch(() => {});
+      } finally {
+        movePending = false;
+      }
+    }
+
+    async function submitMove(from, to, optimistic) {
       const url = roomActive ? `/api/rooms/${roomCode}/move` : '/api/move';
       const res = await fetch(url, {
         method: 'POST',
@@ -637,6 +691,7 @@
         body: JSON.stringify({ from, to }),
       });
       if (!res.ok) {
+        if (optimistic) await resyncBoard();
         // Our own clock could have run out while we were deciding on a move.
         if (roomActive && res.status === 409) {
           const data = await res.json().catch(() => ({}));
@@ -653,7 +708,7 @@
         roomVersion = data.version;
         syncClocks(data);
       }
-      await applyMoveResult(data);
+      await applyMoveResult(data, { alreadyShown: optimistic });
     }
 
     async function resyncStatus() {
@@ -707,7 +762,8 @@
     }
 
     async function pollRoom() {
-      if (!roomCode) return;
+      // Our own move may already be on the server; let sendMove apply it.
+      if (!roomCode || movePending) return;
       const res = await fetch(`/api/rooms/${roomCode}`);
       if (!res.ok) return;
       const data = await res.json();
