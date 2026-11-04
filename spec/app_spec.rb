@@ -198,4 +198,145 @@ RSpec.describe App do
       expect(poll_body['result']).to eq('winner' => 'black', 'reason' => 'timeout')
     end
   end
+
+  describe 'request handling details' do
+    def post_json(path, body)
+      post path, body, 'CONTENT_TYPE' => 'application/json'
+    end
+
+    it 'rejects a malformed JSON body with 422 and an error message' do
+      post_json '/api/move', '{not json'
+      expect(last_response.status).to eq(422)
+      expect(JSON.parse(last_response.body)).to eq('error' => 'invalid JSON body')
+    end
+
+    it 'returns the engine error message for an illegal move' do
+      post_json '/api/move', { from: 'e2', to: 'e5' }.to_json
+      expect(JSON.parse(last_response.body)).to eq('error' => 'illegal move e2-e5')
+    end
+
+    it 'keeps the session position unchanged after an illegal move' do
+      post_json '/api/move', { from: 'e2', to: 'e5' }.to_json
+      get '/api/game'
+      expect(JSON.parse(last_response.body)['fen']).to eq(Chess::Game::STARTING_FEN)
+    end
+
+    it 'returns camelCase keys from the move endpoint' do
+      post_json '/api/move', { from: 'e2', to: 'e4' }.to_json
+      expect(JSON.parse(last_response.body).keys).to contain_exactly(
+        'fen', 'turn', 'lastMove', 'capture', 'secondary', 'promotion', 'check', 'checkmate', 'stalemate'
+      )
+    end
+
+    it 'remembers the position across requests in the same session' do
+      post_json '/api/move', { from: 'e2', to: 'e4' }.to_json
+      get '/api/legal_moves'
+      body = JSON.parse(last_response.body)
+      expect(body).to have_key('e7')
+      expect(body).not_to have_key('e2')
+    end
+
+    it 'resets to the starting position on new_game' do
+      post_json '/api/move', { from: 'e2', to: 'e4' }.to_json
+      post '/api/new_game'
+      expect(JSON.parse(last_response.body)).to include('fen' => Chess::Game::STARTING_FEN, 'turn' => 'white')
+      get '/api/game'
+      expect(JSON.parse(last_response.body)['fen']).to eq(Chess::Game::STARTING_FEN)
+    end
+
+    it 'keeps the chosen difficulty after a new game' do
+      post_json '/api/difficulty', { elo: 1900 }.to_json
+      post '/api/new_game'
+      get '/api/difficulty'
+      expect(JSON.parse(last_response.body)['elo']).to eq(1900)
+    end
+
+    it 'includes aiDebug only when debug=1 is passed' do
+      post '/api/ai_move'
+      expect(JSON.parse(last_response.body)).not_to have_key('aiDebug')
+
+      post '/api/new_game'
+      post '/api/ai_move?debug=1'
+      debug = JSON.parse(last_response.body)['aiDebug']
+      expect(debug).to include('elo' => 1200)
+      expect(debug.keys).to contain_exactly('elo', 'depth', 'blunder', 'nodes', 'elapsedMs', 'candidates')
+    end
+
+    it 'accepts debug=true as well as debug=1' do
+      post '/api/ai_move?debug=true'
+      expect(JSON.parse(last_response.body)).to have_key('aiDebug')
+    end
+  end
+
+  describe '1v1 room edge cases' do
+    def new_client
+      Rack::Test::Session.new(Rack::MockSession.new(App))
+    end
+
+    def start_room
+      post '/api/rooms'
+      code = JSON.parse(last_response.body)['code']
+      black = new_client
+      black.post '/api/rooms/join', { code: code }.to_json, 'CONTENT_TYPE' => 'application/json'
+      [code, black]
+    end
+
+    it 'returns 404 for the state, legal moves and move endpoints of an unknown room' do
+      get '/api/rooms/ZZZZZ'
+      expect(last_response.status).to eq(404)
+      get '/api/rooms/ZZZZZ/legal_moves'
+      expect(last_response.status).to eq(404)
+      post '/api/rooms/ZZZZZ/move', { from: 'e2', to: 'e4' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(last_response.status).to eq(404)
+    end
+
+    it 'joins with a lowercase code' do
+      post '/api/rooms'
+      code = JSON.parse(last_response.body)['code']
+      friend = new_client
+      friend.post '/api/rooms/join', { code: code.downcase }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(friend.last_response).to be_ok
+      expect(JSON.parse(friend.last_response.body)['code']).to eq(code)
+    end
+
+    it 'shows a bystander the room with a null color' do
+      code, = start_room
+      bystander = new_client
+      bystander.get "/api/rooms/#{code}"
+      expect(JSON.parse(bystander.last_response.body)['color']).to be_nil
+    end
+
+    it 'rejects an illegal room move with 422 and does not bump the version' do
+      code, = start_room
+      post "/api/rooms/#{code}/move", { from: 'e2', to: 'e5' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      expect(last_response.status).to eq(422)
+      get "/api/rooms/#{code}"
+      expect(JSON.parse(last_response.body)['version']).to eq(0)
+    end
+
+    it 'serves legal moves for whichever side is on move in the room' do
+      code, black = start_room
+      post "/api/rooms/#{code}/move", { from: 'e2', to: 'e4' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      black.get "/api/rooms/#{code}/legal_moves"
+      body = JSON.parse(black.last_response.body)
+      expect(body['e7']).to contain_exactly('e6', 'e5')
+      expect(body).not_to have_key('d2')
+    end
+
+    it 'keeps room games separate from the solo session game' do
+      code, = start_room
+      post "/api/rooms/#{code}/move", { from: 'd2', to: 'd4' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      get '/api/game'
+      expect(JSON.parse(last_response.body)['fen']).to eq(Chess::Game::STARTING_FEN)
+    end
+
+    it "returns the mover's color and both clocks with a room move" do
+      code, = start_room
+      post "/api/rooms/#{code}/move", { from: 'e2', to: 'e4' }.to_json, 'CONTENT_TYPE' => 'application/json'
+      body = JSON.parse(last_response.body)
+      expect(body['color']).to eq('white')
+      expect(body['clocks'].keys).to contain_exactly('white', 'black')
+      expect(body['result']).to be_nil
+    end
+  end
 end
